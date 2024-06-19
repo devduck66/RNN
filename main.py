@@ -1,4 +1,8 @@
 import pandas as pd
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, Dataset
+import torch.nn as nn
 
 
 # Function to generate Fibonacci sequence
@@ -18,13 +22,12 @@ data = {f"col_{i}": fibonacci(sequence_length) for i in range(num_columns)}
 
 # Create DataFrame and ensure numeric types
 df = pd.DataFrame(data, dtype=float)
+
+# Normalize the DataFrame
+df = (df - df.min()) / (df.max() - df.min())
 print(df.head())
 
-import torch
-from torch.utils.data import DataLoader, Dataset
 
-
-# Custom dataset class
 class FibonacciDataset(Dataset):
     def __init__(self, df, seq_length):
         self.data = df.values.astype(np.float32)  # Ensure data is float32
@@ -45,8 +48,6 @@ seq_length = 10
 # Create dataset and dataloader
 dataset = FibonacciDataset(df, seq_length)
 dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
-
-import torch.nn as nn
 
 
 class LSTMModel(nn.Module):
@@ -74,7 +75,7 @@ model = LSTMModel(input_size, hidden_size, num_layers, output_size)
 
 # Loss and optimizer
 criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)  # Reduced learning rate
 
 # Training loop
 num_epochs = 20
@@ -85,6 +86,34 @@ for epoch in range(num_epochs):
 
         optimizer.zero_grad()
         loss.backward()
+
+        # Apply gradient clipping
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
         optimizer.step()
 
     print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
+
+# Testing the model with a new sequence
+new_sequence = fibonacci(10)  # Generate a Fibonacci sequence of length 10
+new_sequence = (np.array(new_sequence) - df.min().min()) / (
+    df.max().max() - df.min().min()
+)  # Normalize it
+new_sequence = new_sequence.reshape(1, -1, 1).astype(
+    np.float32
+)  # Reshape to (batch_size, seq_length, input_size)
+
+# Convert the sequence to a tensor
+new_sequence_tensor = torch.tensor(new_sequence)
+
+# Ensure the model is in evaluation mode
+model.eval()
+
+# Disable gradient calculation for inference
+with torch.no_grad():
+    # Pass the sequence through the model
+    predicted = model(new_sequence_tensor).cpu().numpy()
+
+# Convert the model's output back to the original scale
+predicted_value = predicted * (df.max().max() - df.min().min()) + df.min().min()
+print("Predicted value:", predicted_value)
